@@ -1,0 +1,176 @@
+---
+title: "WL-P2-Durations"
+author: "Yasser Mushtaq"
+date: "`r Sys.Date()`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+options(width=80)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  dev="CairoPNG", 
+  warning = F, message = F, cache = F, 
+  fig.showtext = T,
+  tidy.opts=list(width.cutoff=80), 
+  tidy=TRUE
+)
+```
+
+```{r}
+library(tidyverse)
+df <- read_csv("P2-RTT.csv")
+head(df)
+```
+
+```{r}
+# top 10 by count of P2
+df_filtered <- df %>%
+  mutate(NationalSpecialtyLabelTrim = str_sub(NationalSpecialtyLabel, 7, -1),
+         NationalSpecialtyLabelTrim = str_replace(NationalSpecialtyLabelTrim, "Trauma & Orthopaedics", "T&O"),
+         NationalSpecialtyLabelTrim = str_replace(NationalSpecialtyLabelTrim, "Paediatric Trauma And Orthopaedics", "Paediatric T&O"),
+         NationalSpecialtyLabelTrim = str_replace(NationalSpecialtyLabelTrim, "Ear Nose And Throat", "ENT")) %>%
+  group_by(NationalSpecialtyLabel) %>%
+  mutate(
+    TotalP2 = n()
+  ) %>%
+  ungroup() %>%
+  filter(TotalP2 > 100) 
+
+```
+
+```{r}
+# get median RTTs
+median_RTTs <- df_filtered %>%
+  group_by(NationalSpecialtyLabelTrim) %>%
+  summarise(
+    median_RTT = median(RTTDuration)
+  ) %>%
+  arrange(median_RTT)
+
+longest_median <- median_RTTs$median_RTT[length(median_RTTs$median_RTT)]
+shortest_median <- median_RTTs$median_RTT[1]
+
+longest_median_name <- median_RTTs$NationalSpecialtyLabelTrim[length(median_RTTs$median_RTT)]
+shortest_median_name <- median_RTTs$NationalSpecialtyLabelTrim[1]
+```
+
+```{r mean, fig.showtext=TRUE}
+library(ggridges)
+library(viridis)
+library(ggtext)
+library(glue)
+# Load fonts
+extrafont::loadfonts()
+
+p <- ggplot(df_filtered) +
+  aes(
+    y = fct_reorder(NationalSpecialtyLabelTrim, RTTDuration, .fun = median),
+    x = RTTDuration, fill = stat(x), label = NationalSpecialtyLabelTrim
+  ) +
+  # geom_text(
+  #   aes(x = RTTDuration - 1.4, color = RTTDuration), nudge_y = 0.3,
+  #   show.legend = FALSE,
+  #   family = "Roboto Mono",
+  #   check_overlap = TRUE,
+  #   size = 8
+  # ) +
+  geom_curve(
+    aes(x = -100, xend = longest_median, y = 15, yend = 15.3),
+    ncp = 300, angle = 130,
+    size = 0.08, curvature = -0.4,
+    color = viridis(1, direction = -1, end = 0.5),
+    arrow = arrow(length = unit(2, "mm"),
+                  type = "closed")
+  ) +
+  stat_density_ridges(
+    jittered_points = TRUE, color = 'white',
+     aes(point_color = stat(x)),
+     position = position_raincloud(height = 0.2, width = 0.05),
+     alpha = 0.5, scale = 0.9, point_size = 1,
+     rel_min_height = 0.001,
+     show.legend = FALSE,
+     geom = "density_ridges_gradient",
+     quantile_lines = TRUE, 
+     quantiles = 2,
+     #quantile_fun = median
+  ) +
+  annotate(
+    geom = "richtext",
+    #x = c(-160, -160),
+    x = rep(-160, length(median_RTTs$median_RTT)),
+    #y = c(longest_median_name, shortest_median_name),
+    y = rev(median_RTTs$NationalSpecialtyLabelTrim),
+    label = c(
+      glue('The **longest**<br>median is **{longest_median} - {longest_median_name}**'),
+      rev(c(median_RTTs$NationalSpecialtyLabelTrim[-c(1, length(median_RTTs$median_RTT))])),
+      glue('The **shortest**<br>median is **{shortest_median} - {shortest_median_name}**')),
+    color = "#4f1f10", family = "Roboto Mono",
+    fill = NA, label.color = NA
+  ) +
+  scale_fill_viridis(aesthetics = c("point_color", "fill", "color")) + # direction = -1
+  scale_y_discrete(expand = expansion(add = c(0.5,1.4))) +
+  scale_x_continuous(position = 'top', expand = expansion(add = c(160,10))) +
+  labs(
+    x = NULL, y = NULL,
+    title = "A comparison of RTT referral durations of currently waiting <span style='color:#4f1f10'>Priority 2</span> referrals", 
+    caption = "Priority 2 referrals with open RTT pathway only. Displaying specialities with more than 100 Priority 2 waiters. 
+              \nWhite verticle line indicates median RTT duration. Units presented in days.
+              \nRTT: Referral to Treatment; ENT: Ear Nose And Throat; T&O: Trauma and Orthopaedics"
+  ) +
+  theme_bw() +
+  theme(
+    text = element_text(
+      family = "Roboto Mono", face = "bold",
+      color = viridis(1, direction = -1, end = 0.9)
+      #color = "black"
+    ),
+    axis.text.x = element_text(
+      family = "Roboto Mono", size = 13,
+      color = viridis(1, direction = 1, end = 1)
+    ),
+    plot.title.position = "plot",
+    plot.title = element_markdown(
+      family = "Roboto Mono",
+      size = 14, hjust = 0.5,
+      color = "#4f1f10",
+      margin = margin(t = 5, b = 5, unit = 'mm')
+    ),
+    plot.caption.position = "plot",
+    plot.caption = element_text(
+      hjust = 0.5, size = 11, color = "#4f1f10"
+    ),
+    axis.ticks = element_blank(),
+    axis.text.y = element_blank(),
+    panel.grid.major.x = element_line(color = 'white'),
+    panel.grid.major.y = element_blank(),
+    panel.border = element_rect(color = "white"),
+    panel.background = element_rect(fill = "#E4E1DB"),
+    plot.background = element_rect(fill = "#E4E1DB"))
+
+p
+```
+
+```{r, fig.showtext=T}
+ggsave(p, filename = "RTT-P2-Durations.png",
+       device = "png", width = 35, height = 20.5,
+       units = "cm", dpi = 300)
+```
+
+
+```{r}
+
+#iew(extrafont::fonttable())
+
+rep(-160, length(median_RTTs$median_RTT))
+
+rev(median_RTTs$NationalSpecialtyLabelTrim)
+
+c("test",c(median_RTTs$NationalSpecialtyLabelTrim[-c(1, length(median_RTTs$median_RTT))]), "test")
+
+
+
+rev(c(median_RTTs$NationalSpecialtyLabelTrim[-c(1, length(median_RTTs$median_RTT))]))
+```
